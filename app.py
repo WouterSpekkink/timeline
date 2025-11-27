@@ -787,7 +787,6 @@ def main():
 
         # ---- LINKS TAB ----
         with tab_links:
-            st.subheader("Links")
             add_link_ui()
 
     # ---- MAIN AREA ----
