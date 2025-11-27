@@ -329,20 +329,20 @@ def plot_timeline(
                 + "<br>Summary: " + sub["summary"].astype(str)
                 + "<br>Notes: " + sub["notes"].astype(str)
                 )
-
         fig.add_trace(
-                go.Scatter(
-                    x=sub["start_dt"],
-                    y=[lane] * len(sub),
-                    mode="text",
-                    text=sub["display_text"],
-                    textposition="middle center",
-                    hovertext=hover_text,
-                    hoverinfo="text",
-                    name=str(lane),
-                    )
+            go.Scatter(
+                x=sub["start_dt"],
+                y=[lane] * len(sub),
+                mode="text",
+                text=sub["display_text"],
+                textposition="middle center",
+                hovertext=hover_text,
+                hoverinfo="text",
+                name=str(lane),
+                cliponaxis=False,   # ← allow text to extend past the axis box
                 )
-
+            )
+       
     # ---- LINK ARROWS BETWEEN EVENTS ----
 
 
@@ -439,7 +439,7 @@ def plot_timeline(
     fig.update_layout(
             xaxis_title="Time",
             height=figure_height,
-            margin=dict(l=40, r=20, t=20, b=40),
+            margin=dict(l=40, r=20, t=80, b=40),  # t from 20 → 80
             showlegend=False,
             )
 
