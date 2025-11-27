@@ -777,7 +777,7 @@ def main():
             # NEW: node font size
             node_font_size = st.slider(
                     "Node font size",
-                    min_value=8,
+                    min_value=1,
                     max_value=24,
                     value=12,
                     step=1,
