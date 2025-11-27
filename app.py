@@ -204,7 +204,14 @@ def wrap_text(text: str, width: int = 30) -> str:
 
     return "<br>".join(lines)
 
-def plot_timeline(events: List[Event], links: List[Link]):
+
+def plot_timeline(
+    events: List[Event],
+    links: List[Link],
+    src_extra_offset: int = 0,
+    tgt_extra_offset: int = 0,
+):
+
     if not events:
         st.info("No events to show yet.")
         return
@@ -234,21 +241,30 @@ def plot_timeline(events: List[Event], links: List[Link]):
     # Actors as categories → separate "lanes"
     df["actor"] = df["actor"].astype("category")
 
+    # ---- Estimate label size for each event ----
+    # Prefer summary, fallback to label
+    df["raw_text"] = df.apply(
+        lambda row: row["summary"] if row["summary"] else row["label"],
+        axis=1,
+    )
+    # Wrap text
+    df["display_text"] = df["raw_text"].apply(lambda t: wrap_text(t, width=30))
+    # Count lines: number of <br> + 1 (for last line)
+    df["n_lines"] = df["display_text"].apply(
+        lambda s: (s.count("<br>") + 1) if s else 1
+    )
+
     fig = go.Figure()
 
-    # --- EVENT LABELS AS FLOATING TEXT ---
+    # ---- EVENT LABELS AS FLOATING TEXT ----
     for actor in df["actor"].cat.categories:
         sub = df[df["actor"] == actor]
-
-        # Prefer summary, fallback to label
-        raw_text = sub["summary"].where(sub["summary"] != "", sub["label"])
-        # Wrap long text into multiple lines
-        text_to_show = [wrap_text(t, width=30) for t in raw_text]
 
         hover_text = (
             "ID: " + sub["id"]
             + "<br>Label: " + sub["label"]
-            + "<br>Start: " + sub["start_dt"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
+            + "<br>Start: "
+            + sub["start_dt"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
             + "<br>Codes: " + sub["codes"]
             + "<br>Summary: " + sub["summary"]
             + "<br>Notes: " + sub["notes"]
@@ -259,7 +275,7 @@ def plot_timeline(events: List[Event], links: List[Link]):
                 x=sub["start_dt"],
                 y=[actor] * len(sub),
                 mode="text",
-                text=text_to_show,
+                text=sub["display_text"],   # already wrapped
                 textposition="middle center",
                 hovertext=hover_text,
                 hoverinfo="text",
@@ -267,24 +283,38 @@ def plot_timeline(events: List[Event], links: List[Link]):
             )
         )
 
-    # --- LINK ARROWS BETWEEN EVENTS ---
 
-    # Build a lookup: event id -> (x, y)
-    positions = {
-        row["id"]: (row["start_dt"], row["actor"])
-        for _, row in df.iterrows()
-        if pd.notna(row["start_dt"])
-    }
+
+    # ---- LINK ARROWS BETWEEN EVENTS ----
+
+    # Build lookup: event id -> (x, y, n_lines)
+    positions = {}
+    for _, row in df.iterrows():
+        if pd.notna(row["start_dt"]):
+            positions[row["id"]] = (
+                row["start_dt"],
+                row["actor"],
+                int(row["n_lines"]),
+            )
 
     for link in links:
-        # Only draw if both events are present & have positions
         if link.source not in positions or link.target not in positions:
             continue
 
-        x0, y0 = positions[link.source]  # source
-        x1, y1 = positions[link.target]  # target
+        x0, y0, src_lines = positions[link.source]
+        x1, y1, tgt_lines = positions[link.target]
 
-        # Short label for the link (optional, can leave "")
+        # Base heuristic 
+        per_line = 10    # extra distance per text line
+
+        # Heuristic distances
+        src_standoff_heur = per_line * src_lines
+        tgt_standoff_heur = per_line * tgt_lines
+
+        # Apply user-controlled extra offsets
+        src_standoff = max(0, src_standoff_heur + src_extra_offset)
+        tgt_standoff = max(0, tgt_standoff_heur + tgt_extra_offset)
+
         link_label = link.label or link.type or ""
 
         fig.add_annotation(
@@ -300,12 +330,14 @@ def plot_timeline(events: List[Event], links: List[Link]):
             arrowhead=2,
             arrowsize=1,
             arrowwidth=1,
-            arrowcolor="rgba(100,100,100,0.7)",
-            opacity=0.8,
-            text=link_label,        # set "" if you don't want text on the arrow
+            arrowcolor="rgba(80,80,80,0.7)",
+            opacity=0.9,
+            startstandoff=src_standoff,   # distance from source text
+            standoff=tgt_standoff,        # distance from target text
+            text=link_label,              # or "" if you don't want labels on arrows
             align="center",
         )
-
+       
     fig.update_layout(
         xaxis_title="Time",
         yaxis_title="Actor / lane",
@@ -573,6 +605,26 @@ def main():
             mime="application/json",
         )
 
+
+    st.sidebar.subheader("Arrow spacing")
+
+    src_extra_offset = st.sidebar.slider(
+        "Extra offset at source (px)",
+        min_value=-100,
+        max_value=100,
+        value=0,
+        step=1,
+        help="Increase or decrease arrow distance from source events.",
+    )
+
+    tgt_extra_offset = st.sidebar.slider(
+        "Extra offset at target (px)",
+        min_value=-100,
+        max_value=100,
+        value=0,
+        step=1,
+        help="Increase or decrease arrow distance from target events.",
+    )
     # Layout: timeline + editor
 
     col1, col2 = st.columns([2, 1])
@@ -588,7 +640,12 @@ def main():
     # 2) Then draw the timeline with the updated events
     with col1:
         st.subheader("Timeline")
-        plot_timeline(st.session_state.events, st.session_state.links)
+        plot_timeline(
+            st.session_state.events,
+            st.session_state.links,
+            src_extra_offset=src_extra_offset,
+            tgt_extra_offset=tgt_extra_offset,
+        )
 
 if __name__ == "__main__":
     main()
