@@ -242,6 +242,7 @@ def plot_timeline(
         lane_spacing_factor: float = 1.0,
         show_link_labels: bool = True,
         node_text_mode: str = "Summary (if available)",
+        node_font_size: int
         ):
     """Plot events as wrapped text on a timeline, with arrows for links.
 
@@ -347,6 +348,7 @@ def plot_timeline(
                 hoverinfo="text",
                 name=str(lane),
                 cliponaxis=False,   # ← allow text to extend past the axis box
+                node_font_size: int = 12,   
                 )
             )
        
@@ -768,6 +770,17 @@ def main():
                         ),
                     )
 
+
+            # NEW: node font size
+            node_font_size = st.slider(
+                    "Node font size",
+                    min_value=8,
+                    max_value=24,
+                    value=12,
+                    step=1,
+                    help="Increase if the text is hard to read; decrease to fit more nodes.",
+                    )
+
             st.markdown("---")
 
             st.subheader("Arrow spacing")
@@ -857,6 +870,7 @@ def main():
             lane_spacing_factor=lane_spacing_factor,
             show_link_labels=show_link_labels,
             node_text_mode=node_text_mode,
+            node_font_size=node_font_size,   
             )
 
 if __name__ == "__main__":
