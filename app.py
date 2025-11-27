@@ -783,7 +783,6 @@ def main():
             st.subheader("Add event")
             add_event_ui()
             st.markdown("---")
-            st.subheader("Edit / remove event")
             edit_event_ui()
 
         # ---- LINKS TAB ----
