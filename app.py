@@ -242,7 +242,7 @@ def plot_timeline(
         lane_spacing_factor: float = 1.0,
         show_link_labels: bool = True,
         node_text_mode: str = "Summary (if available)",
-        node_font_size: int
+        node_font_size: int = 12,
         ):
     """Plot events as wrapped text on a timeline, with arrows for links.
 
