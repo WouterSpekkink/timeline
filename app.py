@@ -401,7 +401,7 @@ def plot_timeline(
                     showarrow=False,
                     text=link_label,
                     align="center",
-                    yshift=-20, # Move label towards arrow?
+                    yshift=0, # Move label towards arrow?
                     font=dict(size=10),
                     )
 
