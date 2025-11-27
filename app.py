@@ -394,7 +394,7 @@ def plot_timeline(
             mid_x = x0 + (x1 - x0) / 2
 
             fig.add_annotation(
-                    x=mix_x,
+                    x=mid_x,
                     y=y1,
                     xref="x",
                     yref="y",
