@@ -368,6 +368,7 @@ def plot_timeline(
 
         link_label = link.label or link.type or ""
 
+        # The arrow itself
         fig.add_annotation(
             x=x1,
             y=y1,
@@ -385,9 +386,24 @@ def plot_timeline(
             opacity=0.9,
             startstandoff=src_standoff,
             standoff=tgt_standoff,
-            text=link_label,
+            text="",
             align="center",
         )
+        # Label at midpoint
+        if link_label:
+            mid_x = x0 + (x1 - x0) / 2
+
+            fig.add_annotation(
+                    x=mix_x,
+                    y=y1,
+                    xref="x",
+                    yref="y",
+                    showarrow=False,
+                    text=link_label,
+                    align="center",
+                    yshift=-20, # Move label towards arrow?
+                    font=dict(size=10),
+                    )
 
     # Compute figure height from number of lanes and spacing factor
     n_lanes = len(lane_keys) if lane_keys else 1
