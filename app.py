@@ -296,6 +296,9 @@ def plot_timeline(
 
     df["lane_key"] = pd.Categorical(df["lane_key"], categories=lane_keys, ordered=True)
 
+    # Map each lane to a numeric index for vertical geometry
+    lane_index = {lane : i for i, lane in enumerate(lane_keys)}
+
     # ---- Wrap text and count lines ----
     df["raw_text"] = df.apply(
         lambda row: row["summary"] if row["summary"] else row["label"],
@@ -342,15 +345,77 @@ def plot_timeline(
     # ---- LINK ARROWS BETWEEN EVENTS ----
 
     # event id -> (x, lane, n_lines)
-    positions: dict[str, tuple[pd.Timestamp, str, int]] = {}
+    positions: dict[str, tuple[pd.Timestamp, str, int, int]] = {}
     for _, row in df.iterrows():
         if pd.notna(row["start_dt"]):
+            lk = row["lane_key"]
+            idx = lane_index.get(lk,0)
             positions[row["id"]] = (
                 row["start_dt"],
-                row["lane_key"],
+                lk,
+                idx,
                 int(row["n_lines"]),
             )
 
+
+    for link in links:
+        if link.source not in positions or link.target not in positions:
+            continue
+
+        x0, y0_key, y0_idx, src_lines = positions[link.source]
+        x1, y1_key, y1_idx, tgt_lines = positions[link.target]
+
+        per_line = 4  # pixels per line of text
+
+        src_standoff_heur = per_line * src_lines
+        tgt_standoff_heur = per_line * tgt_lines
+
+        src_standoff = max(0, src_standoff_heur + src_extra_offset)
+        tgt_standoff = max(0, tgt_standoff_heur + tgt_extra_offset)
+
+        link_label = link.label or link.type or ""
+
+        # 1) Arrow without text
+        fig.add_annotation(
+            x=x1,
+            y=y1_key,   # category name
+            ax=x0,
+            ay=y0_key,  # category name
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1,
+            arrowcolor="rgba(80, 80, 80, 0.7)",
+            opacity=0.9,
+            startstandoff=src_standoff,
+            standoff=tgt_standoff,
+            text="",  # no text on the arrow itself
+            align="center",
+            )
+
+        # 2) Label at midpoint of the link, in both x and y
+        if link_label:
+            # midpoint in time
+            mid_x = x0 + (x1 - x0) / 2
+
+            # midpoint between lane indices; category axis accepts numeric positions
+            mid_y_idx = (y0_idx + y1_idx) / 2.0
+
+            fig.add_annotation(
+                    x=mid_x,
+                    y=mid_y_idx,
+                    xref="x",
+                    yref="y",
+                    showarrow=False,
+                    text=link_label,
+                    align="center",
+                    yshift=-5,      # small tweak up/down if you like
+                    font=dict(size=10),
+                    )
     for link in links:
         if link.source not in positions or link.target not in positions:
             continue
@@ -392,7 +457,7 @@ def plot_timeline(
         # Label at midpoint
         if link_label:
             mid_x = x0 + (x1 - x0) / 2
-            mid_y = y0 + (y1 - y0) / 2
+    
 
             fig.add_annotation(
                     x=mid_x,
