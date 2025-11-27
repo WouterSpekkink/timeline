@@ -204,17 +204,18 @@ def wrap_text(text: str, width: int = 30) -> str:
 
     return "<br>".join(lines)
 
-def plot_timeline(events: List[Event]):
+def plot_timeline(events: List[Event], links: List[Link]):
     if not events:
         st.info("No events to show yet.")
         return
 
+    # Build dataframe of events
     df = pd.DataFrame(
         [
             {
                 "id": e.id,
                 "label": e.label,
-                "summary": e.summary or "",      # ← NEW
+                "summary": e.summary or "",
                 "start": e.start,
                 "actor": e.actor or "Unspecified",
                 "codes": ", ".join(e.codes),
@@ -224,23 +225,24 @@ def plot_timeline(events: List[Event]):
         ]
     )
 
+    # Parse dates
     df["start_dt"] = pd.to_datetime(df["start"], errors="coerce")
     if df["start_dt"].isna().all():
         st.warning("Could not parse any start dates. Check the 'start' column format.")
         return
 
+    # Actors as categories → separate "lanes"
     df["actor"] = df["actor"].astype("category")
 
     fig = go.Figure()
 
+    # --- EVENT LABELS AS FLOATING TEXT ---
     for actor in df["actor"].cat.categories:
         sub = df[df["actor"] == actor]
 
-        # What text to show on the timeline:
-        # Choose summary if available, otherwise label
+        # Prefer summary, fallback to label
         raw_text = sub["summary"].where(sub["summary"] != "", sub["label"])
-
-        # Wrap each summary/label
+        # Wrap long text into multiple lines
         text_to_show = [wrap_text(t, width=30) for t in raw_text]
 
         hover_text = (
@@ -256,13 +258,52 @@ def plot_timeline(events: List[Event]):
             go.Scatter(
                 x=sub["start_dt"],
                 y=[actor] * len(sub),
-                mode="text",             # ← text-only “floating” labels
+                mode="text",
                 text=text_to_show,
                 textposition="middle center",
                 hovertext=hover_text,
                 hoverinfo="text",
                 name=str(actor),
             )
+        )
+
+    # --- LINK ARROWS BETWEEN EVENTS ---
+
+    # Build a lookup: event id -> (x, y)
+    positions = {
+        row["id"]: (row["start_dt"], row["actor"])
+        for _, row in df.iterrows()
+        if pd.notna(row["start_dt"])
+    }
+
+    for link in links:
+        # Only draw if both events are present & have positions
+        if link.source not in positions or link.target not in positions:
+            continue
+
+        x0, y0 = positions[link.source]  # source
+        x1, y1 = positions[link.target]  # target
+
+        # Short label for the link (optional, can leave "")
+        link_label = link.label or link.type or ""
+
+        fig.add_annotation(
+            x=x1,
+            y=y1,
+            ax=x0,
+            ay=y0,
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1,
+            arrowcolor="rgba(100,100,100,0.7)",
+            opacity=0.8,
+            text=link_label,        # set "" if you don't want text on the arrow
+            align="center",
         )
 
     fig.update_layout(
@@ -547,7 +588,7 @@ def main():
     # 2) Then draw the timeline with the updated events
     with col1:
         st.subheader("Timeline")
-        plot_timeline(st.session_state.events)
+        plot_timeline(st.session_state.events, st.session_state.links)
 
 if __name__ == "__main__":
     main()
