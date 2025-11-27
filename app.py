@@ -241,6 +241,7 @@ def plot_timeline(
         tgt_extra_offset: int = 0,
         lane_spacing_factor: float = 1.0,
         show_link_labels: bool = True,
+        node_text_mode: str = "Summary (if available)",
         ):
     """Plot events as wrapped text on a timeline, with arrows for links.
 
@@ -300,15 +301,21 @@ def plot_timeline(
     # Map each lane to a numeric index for vertical geometry
     lane_index = {lane : i for i, lane in enumerate(lane_keys)}
 
-    # ---- Wrap text and count lines ----
-    df["raw_text"] = df.apply(
+    # ---- Choose node text based on mode, then wrap ----
+    if node_text_mode.startswith("Label"):
+        # Always show the label
+        df["raw_text"] = df["label"].fillna("")
+    else:
+        # "Summary (if available)": prefer summary, fall back to label
+        df["raw_text"] = df.apply(
             lambda row: row["summary"] if row["summary"] else row["label"],
             axis=1,
-            )
+        )
+
     df["display_text"] = df["raw_text"].apply(lambda t: wrap_text(t, width=30))
     df["n_lines"] = df["display_text"].apply(
-            lambda s: (s.count("<br>") + 1) if s else 1
-            )
+        lambda s: (s.count("<br>") + 1) if s else 1
+    )
 
     fig = go.Figure()
 
@@ -747,6 +754,22 @@ def main():
         # ---- VISUALIZATION TAB ----
 
         with tab_vis:
+
+            st.subheader("Node text")
+
+            node_text_mode = st.radio(
+                    "What should be shown inside the nodes?",
+                    ["Summary (if available)", "Label only"],
+                    index=0,
+                    help=(
+                        "Summary (if available): use the short description if present, "
+                        "otherwise fall back to the label.\n"
+                        "Label only: always show the event label."
+                        ),
+                    )
+
+            st.markdown("---")
+
             st.subheader("Arrow spacing")
 
             src_extra_offset = st.slider(
@@ -833,6 +856,7 @@ def main():
             tgt_extra_offset=tgt_extra_offset,
             lane_spacing_factor=lane_spacing_factor,
             show_link_labels=show_link_labels,
+            node_text_mode=node_text_mode,
             )
 
 if __name__ == "__main__":
