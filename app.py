@@ -36,8 +36,9 @@ class Event:
     end: Optional[str] = None
     actor: Optional[str] = None
     codes: List[str] = field(default_factory=list)
-    y_lane: Optional[int] = None
+    lane_label: Optional[str] = None
     summary: Optional[str] = None   # ← NEW: short description (few sentences)
+    source: Optional[str] = None
     notes: Optional[str] = None     # longer, detailed notes
 
     @staticmethod
@@ -50,14 +51,7 @@ class Event:
         codes_str = clean(row.get("codes", "")) or ""
         codes = [c.strip() for c in codes_str.split(";") if c.strip()]
 
-        y_lane_raw = row.get("y_lane", None)
-        if pd.isna(y_lane_raw) or y_lane_raw in ("", None):
-            y_lane = None
-        else:
-            try:
-                y_lane = int(y_lane_raw)
-            except ValueError:
-                y_lane = None
+        lane_label = clean(row.get("lane_label", None))
 
         return Event(
             id=clean(row.get("id", "")),
@@ -66,8 +60,9 @@ class Event:
             end=clean(row.get("end", None)),
             actor=clean(row.get("actor", None)),
             codes=codes,
-            y_lane=y_lane,
-            summary=clean(row.get("summary", None)),   # ← NEW
+            lane_label=lane_label,
+            summary=clean(row.get("summary", None)),   
+            source=clean(row.get("source", None)),
             notes=clean(row.get("notes", None)),
         )
 
@@ -75,7 +70,6 @@ class Event:
         d = asdict(self)
         d["codes"] = ";".join(self.codes)
         return d
-
 
 @dataclass
 class Link:
@@ -150,8 +144,9 @@ def load_from_json(file) -> Tuple[List[Event], List[Link]]:
             end=e.get("end"),
             actor=e.get("actor"),
             codes=e.get("codes", []),
-            y_lane=e.get("y_lane"),
-            summary=e.get("summary"),      # ← NEW
+            lane_label=e.get("lane_label"),
+            summary=e.get("summary"),      
+            source=e.get("source"),
             notes=e.get("notes"),
         )
         for e in events_raw
@@ -204,19 +199,27 @@ def wrap_text(text: str, width: int = 30) -> str:
 
     return "<br>".join(lines)
 
-
 def plot_timeline(
     events: List[Event],
     links: List[Link],
     src_extra_offset: int = 0,
     tgt_extra_offset: int = 0,
+    lane_spacing_factor: float = 1.0,
 ):
+    """Plot events as wrapped text on a timeline, with arrows for links.
 
+    - Vertical position is determined by a string lane_key:
+        * lane_label if provided
+        * otherwise actor
+        * otherwise "Unspecified"
+
+    - lane_order (in st.session_state) controls vertical order; if not set,
+      lanes are ordered alphabetically.
+    """
     if not events:
         st.info("No events to show yet.")
         return
 
-    # Build dataframe of events
     df = pd.DataFrame(
         [
             {
@@ -225,8 +228,10 @@ def plot_timeline(
                 "summary": e.summary or "",
                 "start": e.start,
                 "actor": e.actor or "Unspecified",
+                "lane_label": e.lane_label,
                 "codes": ", ".join(e.codes),
                 "notes": e.notes or "",
+                "source": e.source or "",
             }
             for e in events
         ]
@@ -238,62 +243,76 @@ def plot_timeline(
         st.warning("Could not parse any start dates. Check the 'start' column format.")
         return
 
-    # Actors as categories → separate "lanes"
-    df["actor"] = df["actor"].astype("category")
+    # Lane key = lane_label (if set) else actor
+    def compute_lane_key(row):
+        if row["lane_label"]:
+            return row["lane_label"]
+        return row["actor"] or "Unspecified"
 
-    # ---- Estimate label size for each event ----
-    # Prefer summary, fallback to label
+    df["lane_key"] = df.apply(compute_lane_key, axis=1)
+
+    # Determine lane order using st.session_state.lane_order
+    order_map = getattr(st.session_state, "lane_order", {})
+
+    lane_keys = sorted(
+        df["lane_key"].unique(),
+        key=lambda k: (order_map.get(k, 0), str(k).lower()),
+    )
+
+    df["lane_key"] = pd.Categorical(df["lane_key"], categories=lane_keys, ordered=True)
+
+    # ---- Wrap text and count lines ----
     df["raw_text"] = df.apply(
         lambda row: row["summary"] if row["summary"] else row["label"],
         axis=1,
     )
-    # Wrap text
     df["display_text"] = df["raw_text"].apply(lambda t: wrap_text(t, width=30))
-    # Count lines: number of <br> + 1 (for last line)
     df["n_lines"] = df["display_text"].apply(
         lambda s: (s.count("<br>") + 1) if s else 1
     )
 
     fig = go.Figure()
 
+
     # ---- EVENT LABELS AS FLOATING TEXT ----
-    for actor in df["actor"].cat.categories:
-        sub = df[df["actor"] == actor]
+    for lane in df["lane_key"].cat.categories:
+        sub = df[df["lane_key"] == lane]
 
         hover_text = (
-            "ID: " + sub["id"]
-            + "<br>Label: " + sub["label"]
+            "ID: " + sub["id"].astype(str)
+            + "<br>Label: " + sub["label"].astype(str)
             + "<br>Start: "
             + sub["start_dt"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
-            + "<br>Codes: " + sub["codes"]
-            + "<br>Summary: " + sub["summary"]
-            + "<br>Notes: " + sub["notes"]
+            + "<br>Actor: " + sub["actor"].astype(str)
+            + "<br>Lane: " + sub["lane_key"].astype(str)
+            + "<br>Codes: " + sub["codes"].astype(str)
+            + "<br>Source: " + sub["source"].astype(str)
+            + "<br>Summary: " + sub["summary"].astype(str)
+            + "<br>Notes: " + sub["notes"].astype(str)
         )
-
+    
         fig.add_trace(
             go.Scatter(
                 x=sub["start_dt"],
-                y=[actor] * len(sub),
+                y=[lane] * len(sub),
                 mode="text",
-                text=sub["display_text"],   # already wrapped
+                text=sub["display_text"],
                 textposition="middle center",
                 hovertext=hover_text,
                 hoverinfo="text",
-                name=str(actor),
+                name=str(lane),
             )
         )
 
-
-
     # ---- LINK ARROWS BETWEEN EVENTS ----
 
-    # Build lookup: event id -> (x, y, n_lines)
-    positions = {}
+    # event id -> (x, lane, n_lines)
+    positions: dict[str, tuple[pd.Timestamp, str, int]] = {}
     for _, row in df.iterrows():
         if pd.notna(row["start_dt"]):
             positions[row["id"]] = (
                 row["start_dt"],
-                row["actor"],
+                row["lane_key"],
                 int(row["n_lines"]),
             )
 
@@ -304,14 +323,11 @@ def plot_timeline(
         x0, y0, src_lines = positions[link.source]
         x1, y1, tgt_lines = positions[link.target]
 
-        # Base heuristic 
-        per_line = 10    # extra distance per text line
+        per_line = 4  # pixels per line of text
 
-        # Heuristic distances
         src_standoff_heur = per_line * src_lines
         tgt_standoff_heur = per_line * tgt_lines
 
-        # Apply user-controlled extra offsets
         src_standoff = max(0, src_standoff_heur + src_extra_offset)
         tgt_standoff = max(0, tgt_standoff_heur + tgt_extra_offset)
 
@@ -330,19 +346,35 @@ def plot_timeline(
             arrowhead=2,
             arrowsize=1,
             arrowwidth=1,
-            arrowcolor="rgba(80,80,80,0.7)",
+            arrowcolor="rgba(80, 80, 80, 0.7)",
             opacity=0.9,
-            startstandoff=src_standoff,   # distance from source text
-            standoff=tgt_standoff,        # distance from target text
-            text=link_label,              # or "" if you don't want labels on arrows
+            startstandoff=src_standoff,
+            standoff=tgt_standoff,
+            text=link_label,
             align="center",
         )
-       
+
+    # Compute figure height from number of lanes and spacing factor
+    n_lanes = len(lane_keys) if lane_keys else 1
+    base_per_lane = 80  # px per lane at factor = 1.0
+    min_height = 300
+    figure_height = max(
+        min_height,
+        int(base_per_lane * max(1, n_lanes) * lane_spacing_factor),
+    )
+
+    fig.update_yaxes(
+        type="category",
+        tickmode="array",
+        tickvals=lane_keys,
+        ticktext=lane_keys,
+        title_text="Lane",
+        fixedrange=True,   # avoid vertical squash/stretch when zooming
+    )
+
     fig.update_layout(
         xaxis_title="Time",
-        yaxis_title="Actor / lane",
-        yaxis=dict(type="category"),
-        height=500,
+        height=figure_height,
         margin=dict(l=40, r=20, t=20, b=40),
         showlegend=False,
     )
@@ -357,14 +389,30 @@ def add_event_ui():
     st.subheader("Add new event")
 
     label = st.text_input("Label", key="new_label")
-    start = st.text_input("Start date/time (e.g. 2023-03-05 or ISO)", key="new_start")
-    actor = st.text_input("Actor / lane", key="new_actor")
+    start = st.text_input(
+        "Start date/time (e.g. 2023-03-05 or ISO)",
+        key="new_start",
+    )
+    actor = st.text_input("Actor", key="new_actor")
+
+    lane_label = st.text_input(
+        "Lane label (optional, overrides actor for lane grouping)",
+        key="new_lane_label",
+        help="Examples: 'Municipality', 'Citizen initiatives', 'Province'. "
+             "If left empty, the actor is used.",
+    )
+
     summary = st.text_area(
         "Short description (few sentences)",
-        key="new_summary"
-    )                                      # ← NEW
+        key="new_summary",
+    )
     codes_str = st.text_input("Codes (semicolon-separated)", key="new_codes")
     notes = st.text_area("Detailed notes", key="new_notes")
+
+    source = st.text_input(
+        "Source (e.g. interview code, document reference)",
+        key="new_source",
+    )
 
     if st.button("Add event"):
         if not label or not start:
@@ -384,9 +432,11 @@ def add_event_ui():
             label=label,
             start=start,
             actor=actor or None,
+            lane_label=lane_label or None,
             codes=codes,
-            summary=summary or None,       # ← NEW
+            summary=summary or None,
             notes=notes or None,
+            source=source or None,
         )
         st.session_state.events.append(event)
         st.success(f"Added event {new_id}")
@@ -398,17 +448,27 @@ def edit_event_ui():
         st.write("No events yet.")
         return
 
-    # Create mapping for nicer labels in the dropdown
     options = {f"{e.id}: {e.label}": e.id for e in st.session_state.events}
     label_for_select = st.selectbox("Select event", list(options.keys()))
     selected_id = options[label_for_select]
     event = next(e for e in st.session_state.events if e.id == selected_id)
 
-    # --- Edit fields ---
-    new_label = st.text_input("Label", event.label, key=f"edit_label_{event.id}")
-    new_start = st.text_input("Start", event.start, key=f"edit_start_{event.id}")
-    new_actor = st.text_input("Actor / lane", event.actor or "",
-                              key=f"edit_actor_{event.id}")
+    new_label = st.text_input(
+        "Label", event.label, key=f"edit_label_{event.id}"
+    )
+    new_start = st.text_input(
+        "Start", event.start, key=f"edit_start_{event.id}"
+    )
+    new_actor = st.text_input(
+        "Actor",
+        event.actor or "",
+        key=f"edit_actor_{event.id}",
+    )
+    new_lane_label = st.text_input(
+        "Lane label (optional, overrides actor)",
+        event.lane_label or "",
+        key=f"edit_lane_label_{event.id}",
+    )
     new_summary = st.text_area(
         "Short description (few sentences)",
         event.summary or "",
@@ -424,28 +484,34 @@ def edit_event_ui():
         event.notes or "",
         key=f"edit_notes_{event.id}",
     )
+    new_source = st.text_input(
+        "Source",
+        event.source or "",
+        key=f"edit_source_{event.id}",
+    )
 
     col_save, col_delete = st.columns(2)
 
-    # --- Save changes ---
     with col_save:
         if st.button("Update event", key=f"update_event_{event.id}"):
+
             event.label = new_label
             event.start = new_start
             event.actor = new_actor or None
+            event.lane_label = new_lane_label or None
             event.summary = new_summary or None
             event.codes = [c.strip() for c in new_codes_str.split(";") if c.strip()]
             event.notes = new_notes or None
+            event.source = new_source or None
+
             st.success("Event updated.")
 
-    # --- Delete event ---
     with col_delete:
         if st.button("Delete event", key=f"delete_event_{event.id}"):
-            # Remove event
+
             st.session_state.events = [
                 e for e in st.session_state.events if e.id != event.id
             ]
-            # Remove any links that use this event as source or target
             st.session_state.links = [
                 l for l in st.session_state.links
                 if l.source != event.id and l.target != event.id
@@ -531,10 +597,11 @@ def add_link_ui():
 
 def init_state():
     if "events" not in st.session_state:
-        st.session_state.events: List[Event] = []
+        st.session_state.events = []
     if "links" not in st.session_state:
-        st.session_state.links: List[Link] = []
-
+        st.session_state.links = []
+    if "lane_order" not in st.session_state:
+        st.session_state.lane_order = {}   
 
 def main():
     st.set_page_config(page_title="Timeline event network", layout="wide")
@@ -542,110 +609,144 @@ def main():
 
     st.title("Timeline event network")
 
-    # Sidebar: storage mode, import/export
-    st.sidebar.header("Data")
+    # ---- SIDEBAR UI ----
+    with st.sidebar:
+        st.header("Controls")
 
-    storage_mode = st.sidebar.radio(
-        "Storage format",
-        ["CSV", "JSON"],
-        help="CSV = events.csv + links.csv. JSON = single file with both.",
-    )
+        tab_data, tab_vis, tab_events, tab_links = st.tabs(
+            ["Data", "Visualization", "Events", "Links"]
+        )
 
-    st.sidebar.subheader("Import")
+        # ---- DATA TAB ----
+        with tab_data:
+            storage_mode = st.radio(
+                "Storage format",
+                ["CSV", "JSON"],
+                help="CSV = events.csv + links.csv. JSON = single file with both.",
+            )
 
-    if storage_mode == "CSV":
-        events_csv = st.sidebar.file_uploader("Upload events.csv", type="csv")
-        links_csv = st.sidebar.file_uploader("Upload links.csv", type="csv")
+            st.subheader("Import")
+            if storage_mode == "CSV":
+                events_csv = st.file_uploader("Upload events.csv", type="csv")
+                links_csv = st.file_uploader("Upload links.csv", type="csv")
 
-        if st.sidebar.button("Load CSV data"):
-            if events_csv is None:
-                st.sidebar.error("Please upload at least events.csv.")
+                if st.button("Load CSV data"):
+                    if events_csv is None:
+                        st.error("Please upload at least events.csv.")
+                    else:
+                        st.session_state.events = load_events_from_csv(events_csv)
+                        if links_csv is not None:
+                            st.session_state.links = load_links_from_csv(links_csv)
+                        else:
+                            st.session_state.links = []
+                        st.success("Loaded data from CSV.")
             else:
-                st.session_state.events = load_events_from_csv(events_csv)
-                if links_csv is not None:
-                    st.session_state.links = load_links_from_csv(links_csv)
-                else:
-                    st.session_state.links = []
-                st.sidebar.success("Loaded data from CSV.")
-    else:
-        json_file = st.sidebar.file_uploader("Upload data.json", type="json")
-        if st.sidebar.button("Load JSON data"):
-            if json_file is None:
-                st.sidebar.error("Please upload a JSON file.")
+                json_file = st.file_uploader("Upload data.json", type="json")
+                if st.button("Load JSON data"):
+                    if json_file is None:
+                        st.error("Please upload a JSON file.")
+                    else:
+                        events, links = load_from_json(json_file)
+                        st.session_state.events = events
+                        st.session_state.links = links
+                        st.success("Loaded data from JSON.")
+
+            st.subheader("Export")
+            if storage_mode == "CSV":
+                ev_bytes = events_to_csv_bytes(st.session_state.events)
+                ln_bytes = links_to_csv_bytes(st.session_state.links)
+
+                st.download_button("Download events.csv", ev_bytes, "events.csv")
+                st.download_button("Download links.csv", ln_bytes, "links.csv")
             else:
-                events, links = load_from_json(json_file)
-                st.session_state.events = events
-                st.session_state.links = links
-                st.sidebar.success("Loaded data from JSON.")
+                json_bytes = to_json_bytes(st.session_state.events, st.session_state.links)
+                st.download_button("Download data.json", json_bytes, "timeline_data.json")
 
-    st.sidebar.subheader("Export")
+        # ---- VISUALIZATION TAB ----
 
-    if storage_mode == "CSV":
-        ev_bytes = events_to_csv_bytes(st.session_state.events)
-        ln_bytes = links_to_csv_bytes(st.session_state.links)
+        with tab_vis:
+            st.subheader("Arrow spacing")
 
-        st.sidebar.download_button(
-            "Download events.csv",
-            data=ev_bytes,
-            file_name="events.csv",
-            mime="text/csv",
-        )
-        st.sidebar.download_button(
-            "Download links.csv",
-            data=ln_bytes,
-            file_name="links.csv",
-            mime="text/csv",
-        )
-    else:
-        json_bytes = to_json_bytes(st.session_state.events, st.session_state.links)
-        st.sidebar.download_button(
-            "Download data.json",
-            data=json_bytes,
-            file_name="timeline_data.json",
-            mime="application/json",
-        )
+            src_extra_offset = st.slider(
+                "Extra offset at source (px)",
+                min_value=-100,
+                max_value=100,
+                value=0,
+                step=1,
+            )
 
+            tgt_extra_offset = st.slider(
+                "Extra offset at target (px)",
+                min_value=-100,
+                max_value=100,
+                value=0,
+                step=1,
+            )
 
-    st.sidebar.subheader("Arrow spacing")
+            st.markdown("---")
+            st.subheader("Lane labels (optional)")
 
-    src_extra_offset = st.sidebar.slider(
-        "Extra offset at source (px)",
-        min_value=-100,
-        max_value=100,
-        value=0,
-        step=1,
-        help="Increase or decrease arrow distance from source events.",
+            lane_spacing_factor = st.slider(
+                "Lane spacing factor",
+                min_value=0.5,
+                max_value=10.0,
+                value=1.0,
+                step=0.1,
+                help="Increase to add more vertical space between lanes; decrease to pack lanes closer.",
+            )   
+
+            st.markdown("---")
+            st.subheader("Lane order (optional)")
+
+            # Collect all current lane keys (lane_label or actor)
+            lane_keys = sorted(
+                {
+                    (e.lane_label or e.actor or "Unspecified")
+                    for e in st.session_state.events
+                }
+            )
+
+            if not lane_keys:
+                st.caption("No lanes yet. Add some events first.")
+            else:
+                st.caption(
+                    "Lower numbers appear higher in the figure. "
+                    "Leave 0 everywhere to keep alphabetical order."
+                )   
+                for lane in lane_keys:
+                    current = st.session_state.lane_order.get(lane, 0)
+                    new_val = st.number_input(
+                        f"Order for lane '{lane}'",
+                        min_value=-100,
+                        max_value=100,
+                        value=current,
+                        step=1,
+                        key=f"lane_order_{lane}",
+                    )
+                    st.session_state.lane_order[lane] = new_val
+      
+        # ---- EVENTS TAB ----
+        with tab_events:
+            st.subheader("Add event")
+            add_event_ui()
+            st.markdown("---")
+            st.subheader("Edit / remove event")
+            edit_event_ui()
+
+        # ---- LINKS TAB ----
+        with tab_links:
+            st.subheader("Links")
+            add_link_ui()
+
+    # ---- MAIN AREA ----
+    st.subheader("Timeline")
+    plot_timeline(
+        st.session_state.events,
+        st.session_state.links,
+        src_extra_offset=src_extra_offset,
+        tgt_extra_offset=tgt_extra_offset,
+        lane_spacing_factor=lane_spacing_factor,
     )
-
-    tgt_extra_offset = st.sidebar.slider(
-        "Extra offset at target (px)",
-        min_value=-100,
-        max_value=100,
-        value=0,
-        step=1,
-        help="Increase or decrease arrow distance from target events.",
-    )
-    # Layout: timeline + editor
-
-    col1, col2 = st.columns([2, 1])
-
-    # 1) First run the editing UI (mutates st.session_state.events)
-    with col2:
-        add_event_ui()
-        st.markdown("---")
-        edit_event_ui()
-        st.markdown("---")
-        add_link_ui()
-
-    # 2) Then draw the timeline with the updated events
-    with col1:
-        st.subheader("Timeline")
-        plot_timeline(
-            st.session_state.events,
-            st.session_state.links,
-            src_extra_offset=src_extra_offset,
-            tgt_extra_offset=tgt_extra_offset,
-        )
 
 if __name__ == "__main__":
     main()
