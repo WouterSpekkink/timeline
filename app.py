@@ -687,8 +687,6 @@ def main():
                         st.success("Loaded data from JSON.")
 
             st.subheader("Export")
-
-            st.subheader("Export")
             if storage_mode == "CSV":
                 ev_bytes = events_to_csv_bytes(st.session_state.events)
                 ln_bytes = links_to_csv_bytes(st.session_state.links)
