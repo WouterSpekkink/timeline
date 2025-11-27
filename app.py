@@ -348,7 +348,10 @@ def plot_timeline(
                 hoverinfo="text",
                 name=str(lane),
                 cliponaxis=False,   # ← allow text to extend past the axis box
-                node_font_size: int = 12,   
+                textfont=dict(
+                    size=node_font_size,        # ← controlled by slider
+                    color="#222222",            # ← subtle dark for nodes
+                    ),
                 )
             )
        
