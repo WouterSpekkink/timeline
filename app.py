@@ -118,13 +118,48 @@ def load_links_from_csv(file) -> List[Link]:
     df = pd.read_csv(file)
     return [Link.from_row(row) for _, row in df.iterrows()]
 
+def events_template_csv_bytes() -> bytes:
+    """Empty events CSV with the correct headers."""
+    df = pd.DataFrame(
+        columns=[
+            "id",
+            "label",
+            "start",
+            "end",
+            "actor",
+            "lane_label",
+            "codes",
+            "summary",
+            "source",
+            "notes",
+        ]
+    )
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue().encode("utf-8")
+
+
+def links_template_csv_bytes() -> bytes:
+    """Empty links CSV with the correct headers."""
+    df = pd.DataFrame(
+        columns=[
+            "id",
+            "source",
+            "target",
+            "type",
+            "label",
+            "codes",
+        ]
+    )
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue().encode("utf-8")
 
 def events_to_csv_bytes(events: List[Event]) -> bytes:
     df = pd.DataFrame([e.to_row() for e in events])
     buf = io.StringIO()
     df.to_csv(buf, index=False)
     return buf.getvalue().encode("utf-8")
-
 
 def links_to_csv_bytes(links: List[Link]) -> bytes:
     df = pd.DataFrame([l.to_row() for l in links])
@@ -652,16 +687,36 @@ def main():
                         st.success("Loaded data from JSON.")
 
             st.subheader("Export")
+
+            st.subheader("Export")
             if storage_mode == "CSV":
                 ev_bytes = events_to_csv_bytes(st.session_state.events)
                 ln_bytes = links_to_csv_bytes(st.session_state.links)
 
                 st.download_button("Download events.csv", ev_bytes, "events.csv")
                 st.download_button("Download links.csv", ln_bytes, "links.csv")
+
+                st.markdown("---")
+                st.subheader("Templates")
+
+                tmpl_ev_bytes = events_template_csv_bytes()
+                tmpl_ln_bytes = links_template_csv_bytes()
+
+                st.download_button(
+                    "Download events template.csv",
+                    tmpl_ev_bytes,
+                    "events_template.csv",
+                )
+                st.download_button(
+                    "Download links template.csv",
+                    tmpl_ln_bytes,
+                    "links_template.csv",
+                )
+
             else:
                 json_bytes = to_json_bytes(st.session_state.events, st.session_state.links)
                 st.download_button("Download data.json", json_bytes, "timeline_data.json")
-
+           
         # ---- VISUALIZATION TAB ----
 
         with tab_vis:
