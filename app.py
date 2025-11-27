@@ -392,10 +392,11 @@ def plot_timeline(
         # Label at midpoint
         if link_label:
             mid_x = x0 + (x1 - x0) / 2
+            mid_y = y0 + (y1 - y0) / 2
 
             fig.add_annotation(
                     x=mid_x,
-                    y=y1,
+                    y=mid_y,
                     xref="x",
                     yref="y",
                     showarrow=False,
