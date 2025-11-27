@@ -421,7 +421,7 @@ def plot_timeline(
 # -----------------------
 
 def add_event_ui():
-    st.subheader("Add new event")
+    st.subheader("Add event")
 
     label = st.text_input("Label", key="new_label")
     start = st.text_input(
@@ -780,7 +780,6 @@ def main():
       
         # ---- EVENTS TAB ----
         with tab_events:
-            st.subheader("Add event")
             add_event_ui()
             st.markdown("---")
             edit_event_ui()
