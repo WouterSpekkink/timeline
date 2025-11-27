@@ -240,6 +240,7 @@ def plot_timeline(
         src_extra_offset: int = 0,
         tgt_extra_offset: int = 0,
         lane_spacing_factor: float = 1.0,
+        show_link_labels: bool = True,
         ):
     """Plot events as wrapped text on a timeline, with arrows for links.
 
@@ -398,7 +399,7 @@ def plot_timeline(
                 )
 
         # 2) Label at midpoint of the link, in both x and y
-        if link_label:
+        if show_link_labels and link_label:
             # midpoint in time
             mid_x = x0 + (x1 - x0) / 2
 
@@ -777,6 +778,13 @@ def main():
                     )   
 
             st.markdown("---")
+            show_link_labels = st.checkbox(
+                "Show link labels",
+                value=True,
+                help="Turn off if labels clutter the visualization.",
+            )
+
+            st.markdown("---")
             st.subheader("Lane order (optional)")
 
             # Collect all current lane keys (lane_label or actor)
@@ -824,6 +832,7 @@ def main():
             src_extra_offset=src_extra_offset,
             tgt_extra_offset=tgt_extra_offset,
             lane_spacing_factor=lane_spacing_factor,
+            show_link_labels=show_link_labels,
             )
 
 if __name__ == "__main__":
