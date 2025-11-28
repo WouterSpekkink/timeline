@@ -243,6 +243,7 @@ def plot_timeline(
         show_link_labels: bool = True,
         node_text_mode: str = "Summary (if available)",
         node_font_size: int = 12,
+        node_text_width: int = 30,
         ):
     """Plot events as wrapped text on a timeline, with arrows for links.
 
@@ -313,7 +314,7 @@ def plot_timeline(
             axis=1,
         )
 
-    df["display_text"] = df["raw_text"].apply(lambda t: wrap_text(t, width=30))
+    df["display_text"] = df["raw_text"].apply(lambda t: wrap_text(t, width=node_text_width))
     df["n_lines"] = df["display_text"].apply(
         lambda s: (s.count("<br>") + 1) if s else 1
     )
@@ -773,8 +774,6 @@ def main():
                         ),
                     )
 
-
-            # NEW: node font size
             node_font_size = st.slider(
                     "Node font size",
                     min_value=1,
@@ -782,6 +781,15 @@ def main():
                     value=12,
                     step=1,
                     help="Increase if the text is hard to read; decrease to fit more nodes.",
+                    )
+
+            node_text_width = st.slider(
+                    "Node text width",
+                    min_value = 20,
+                    max_value = 80,
+                    value = 30,
+                    step = 1,
+                    help="Change the width of the texts used for the event descriptions.",
                     )
 
             st.markdown("---")
@@ -874,6 +882,7 @@ def main():
             show_link_labels=show_link_labels,
             node_text_mode=node_text_mode,
             node_font_size=node_font_size,   
+            node_text_width=node_text_width,
             )
 
 if __name__ == "__main__":
