@@ -307,7 +307,7 @@ def plot_timeline(
     # We jitter on the *day* (floor date), not on the full timestamp.
     df = df.sort_values(["lane_key", "start_dt", "id"])
 
-    jitter_step_days = 5  # tweak this if things still overlap
+    jitter_step_days = 30  # tweak this if things still overlap
 
     # group by lane and calendar day
     groups = df.groupby(
