@@ -17,6 +17,7 @@ from typing import List, Optional, Tuple
 from typing import IO
 import io
 import json
+import numpy as np
 
 import pandas as pd
 import plotly.express as px
@@ -332,6 +333,71 @@ def plot_timeline(
 
     # Map each lane to a numeric index for vertical geometry
     lane_index = {lane : i for i, lane in enumerate(lane_keys)}
+
+    # Overlap handling
+    lane_keys = sorted(df["lane_key"].unique(), key=str)
+    base_y = {lane: i for i, lane in enumerate(lane_keys)}
+    df["base_y"] = df["lane_key"].map(base_y)
+
+    # Sort deterministically
+    df = df.sort_values(["lane_key", "start_dt", "id"])
+
+    df["cluster"] = -1  # cluster index within a lane
+
+    for lane, g_lane in df.groupby("lane_key"):
+        if g_lane.empty:
+            continue
+
+        # walk through events in time order and start a new cluster when gap > sensitivity
+        prev_time = None
+        cluster_id = 0
+
+        for idx, row in g_lane.iterrows():
+            t = row["start_dt"]
+            if prev_time is None:
+                # first one in this lane
+                df.at[idx, "cluster"] = cluster_id
+                prev_time = t
+                continue
+
+            gap_days = (t - prev_time).days
+            if gap_days > sensitivity_days:
+                cluster_id += 1
+            df.at[idx, "cluster"] = cluster_id
+            prev_time = t
+
+    # Now assign vertical offsets per (lane, cluster)
+    max_total_offset = 0.8      # total vertical span we allow around base_y
+    df["y_offset"] = 0.0
+
+    for (lane, cluster), g in df.groupby(["lane_key", "cluster"]):
+        n = len(g)
+        if n <= 1:
+            continue
+
+        n_eff = min(n, max_stack)
+        if n_eff == 1:
+            continue
+
+        # spread n_eff events between -max_total_offset/2 and +max_total_offset/2
+        offsets_core = np.linspace(
+            -max_total_offset / 2.0,
+            max_total_offset / 2.0,
+            n_eff,
+            )
+
+        # If we have more events than max_stack, reuse the topmost offset
+        if n <= max_stack:
+            offsets = offsets_core
+        else:
+            offsets = list(offsets_core)
+            # extra events all get the highest offset
+            offsets.extend([offsets_core[-1]] * (n - max_stack))
+
+        for idx, off in zip(g.index, offsets):
+            df.at[idx, "y_offset"] = off
+
+    df["y_plot"] = df["base_y"] + df["y_offset"]
 
     # ---- Choose node text based on mode, then wrap ----
     if node_text_mode.startswith("Label"):
@@ -862,6 +928,23 @@ def main():
             )
 
             st.markdown("---")
+
+            sensitivity_days = st.slider(
+                    "Overlap sensitivity (days)",
+                    min_value=0,
+                    max_value=365,
+                    value=60,
+                    help="Events within this many days, for the same actor, are stacked vertically."
+                    )
+
+            max_stack = st.slider(
+                    "Maximum vertical levels per actor",
+                    min_value=1,
+                    max_value=6,
+                    value=3,
+                    help="Upper limit on how many virtual lanes an actor can get."
+                    )
+
             st.subheader("Lane order (optional)")
 
             # Collect all current lane keys (lane_label or actor)
