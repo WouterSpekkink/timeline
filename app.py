@@ -338,6 +338,7 @@ def plot_timeline(
     # Overlap handling
     lane_keys = sorted(df["lane_key"].unique(), key=str)
     base_y = {lane: i for i, lane in enumerate(lane_keys)}
+    df["base_y"] = df["lane_key"].map(base_y)
 
     # Sort deterministically
     df = df.sort_values(["lane_key", "start_dt", "id"])
