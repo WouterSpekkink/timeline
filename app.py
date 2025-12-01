@@ -336,9 +336,9 @@ def plot_timeline(
     #lane_index = {lane : i for i, lane in enumerate(lane_keys)}
 
     # Overlap handling
-    lane_keys = sorted(df["lane_key"].unique(), key=str)
-    base_y = {lane: i for i, lane in enumerate(lane_keys)}
-    df["base_y"] = df["lane_key"].map(base_y)
+    # Use the categorical codes directly as base y-positions
+    lane_keys = list(df["lane_key"].cat.categories)
+    df["base_y"] = df["lane_key"].cat.codes.astype(float)
 
     # Sort deterministically
     df = df.sort_values(["lane_key", "start_dt", "id"])
@@ -460,17 +460,16 @@ def plot_timeline(
 
     # event id -> (x, lane_key, lane_index, n_lines)
 
-    positions: dict[str, tuple[pd.Timestamp, float, int, int]] = {}
+
+    positions: dict[str, tuple[pd.Timestamp, float, float, int]] = {}
     for _, row in df.iterrows():
         if pd.notna(row["start_dt"]):
-            lk = row["lane_key"]
-            idx = base_y[lk]  # numeric base position
             positions[row["id"]] = (
-                row["start_dt"],      # x
-                float(row["y_plot"]), # y (with offset)
-                idx,                  # base index for midpoints
+                row["start_dt"],         # x
+                float(row["y_plot"]),    # y (with offset)
+                float(row["base_y"]),    # base index (if you ever need it)
                 int(row["n_lines"]),
-                )
+            )
 
     for link in links:
         if link.source not in positions or link.target not in positions:
@@ -539,10 +538,11 @@ def plot_timeline(
             )
 
 
+
     fig.update_yaxes(
             type="linear",
             tickmode="array",
-            tickvals=[base_y[k] for k in lane_keys],
+            tickvals=list(range(len(lane_keys))),
             ticktext=[str(k) for k in lane_keys],
             title_text="Lane",
             fixedrange=True,
