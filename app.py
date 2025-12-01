@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Tuple
+from typing import IO
 import io
 import json
 
@@ -109,13 +110,42 @@ class Link:
 # Storage helpers
 # -----------------------
 
+def smart_read_csv(file: IO) -> pd.DataFrame:
+    """
+    Robust CSV reader for uploaded files:
+    - Tries multiple encodings
+    - Lets pandas sniff the delimiter (comma, semicolon, tab, ...)
+    """
+    # encodings that realistically occur in your context
+    encodings = ["utf-8", "utf-8-sig", "latin1"]
+
+    last_error = None
+    for enc in encodings:
+        try:
+            file.seek(0)
+            df = pd.read_csv(
+                file,
+                encoding=enc,
+                sep=None,          # let pandas / csv.Sniffer detect delimiter
+                engine="python",   # needed for sep=None
+            )
+            return df
+        except UnicodeDecodeError as e:
+            last_error = e
+            continue
+
+    # If we get here, all encodings failed with UnicodeDecodeError
+    raise last_error if last_error is not None else ValueError(
+        "Could not read CSV with any of the tried encodings."
+    )
+
+
 def load_events_from_csv(file) -> List[Event]:
-    df = pd.read_csv(file)
+    df = smart_read_csv(file)
     return [Event.from_row(row) for _, row in df.iterrows()]
 
-
 def load_links_from_csv(file) -> List[Link]:
-    df = pd.read_csv(file)
+    df = smart_read_csv(file)
     return [Link.from_row(row) for _, row in df.iterrows()]
 
 def events_template_csv_bytes() -> bytes:
@@ -302,33 +332,6 @@ def plot_timeline(
 
     # Map each lane to a numeric index for vertical geometry
     lane_index = {lane : i for i, lane in enumerate(lane_keys)}
-
-    # Jitter events with same lane + date 
-    # We jitter on the *day* (floor date), not on the full timestamp.
-    df = df.sort_values(["lane_key", "start_dt", "id"])
-
-    jitter_step_days = 30  # tweak this if things still overlap
-
-    # group by lane and calendar day
-    groups = df.groupby(
-        ["lane_key", df["start_dt"].dt.floor("D")],
-        dropna=True,
-        sort=False,
-    )
-
-    for (_, _), grp in groups:
-        n = len(grp)
-        if n <= 1:
-            continue
-        # symmetric offsets: e.g. for n=3 → [-5, 0, +5] days
-        offsets = [
-            (i - (n - 1) / 2.0) * jitter_step_days
-            for i in range(n)
-        ]
-        for idx, off in zip(grp.index, offsets):
-            df.loc[idx, "start_dt"] = (
-                df.loc[idx, "start_dt"] + pd.to_timedelta(off, unit="D")
-            )
 
     # ---- Choose node text based on mode, then wrap ----
     if node_text_mode.startswith("Label"):
