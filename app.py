@@ -274,7 +274,8 @@ def plot_timeline(
         show_link_labels: bool = True,
         node_text_mode: str = "Summary (if available)",
         node_font_size: int = 12,
-        node_text_width: int = 30,
+        sensitivity_days: int = 60,
+        max_stack: int = 3,   node_text_width: int = 30,
         ):
     """Plot events as wrapped text on a timeline, with arrows for links.
 
@@ -419,35 +420,37 @@ def plot_timeline(
 
 
     # ---- EVENT LABELS AS FLOATING TEXT ----
+
     for lane in df["lane_key"].cat.categories:
         sub = df[df["lane_key"] == lane]
 
         hover_text = (
-                "ID: " + sub["id"].astype(str)
-                + "<br>Label: " + sub["label"].astype(str)
-                + "<br>Start: "
-                + sub["start_dt"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
-                + "<br>Actor: " + sub["actor"].astype(str)
-                + "<br>Lane: " + sub["lane_key"].astype(str)
-                + "<br>Codes: " + sub["codes"].astype(str)
-                + "<br>Source: " + sub["source"].astype(str)
-                + "<br>Summary: " + sub["summary"].astype(str)
-                + "<br>Notes: " + sub["notes"].astype(str)
-                )
+            "ID: " + sub["id"].astype(str)
+            + "<br>Label: " + sub["label"].astype(str)
+            + "<br>Start: "
+            + sub["start_dt"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
+            + "<br>Actor: " + sub["actor"].astype(str)
+            + "<br>Lane: " + sub["lane_key"].astype(str)
+            + "<br>Codes: " + sub["codes"].astype(str)
+            + "<br>Source: " + sub["source"].astype(str)
+            + "<br>Summary: " + sub["summary"].astype(str)
+            + "<br>Notes: " + sub["notes"].astype(str)
+            )
+
         fig.add_trace(
             go.Scatter(
                 x=sub["start_dt"],
-                y=[lane] * len(sub),
+                y=sub["y_plot"],      # ← use numeric y positions with offsets
                 mode="text",
                 text=sub["display_text"],
                 textposition="middle center",
                 hovertext=hover_text,
                 hoverinfo="text",
                 name=str(lane),
-                cliponaxis=False,   # ← allow text to extend past the axis box
+                cliponaxis=False,
                 textfont=dict(
-                    size=node_font_size,        # ← controlled by slider
-                    color="#222222",            # ← subtle dark for nodes
+                    size=node_font_size,
+                    color="#222222",
                     ),
                 )
             )
@@ -456,24 +459,26 @@ def plot_timeline(
 
 
     # event id -> (x, lane_key, lane_index, n_lines)
-    positions: dict[str, tuple[pd.Timestamp, str, int, int]] = {}
+
+    positions: dict[str, tuple[pd.Timestamp, float, int, int]] = {}
     for _, row in df.iterrows():
         if pd.notna(row["start_dt"]):
             lk = row["lane_key"]
-            idx = lane_index.get(lk, 0)
+            idx = base_y[lk]  # numeric base position
             positions[row["id"]] = (
-                    row["start_dt"],  # x
-                    lk,               # lane key (string)
-                    idx,              # lane index (int)
-                    int(row["n_lines"]),
-                    )
+                row["start_dt"],      # x
+                float(row["y_plot"]), # y (with offset)
+                idx,                  # base index for midpoints
+                int(row["n_lines"]),
+                )
 
     for link in links:
         if link.source not in positions or link.target not in positions:
             continue
 
-        x0, y0_key, y0_idx, src_lines = positions[link.source]
-        x1, y1_key, y1_idx, tgt_lines = positions[link.target]
+
+        x0, y0, y0_idx, src_lines = positions[link.source]
+        x1, y1, y1_idx, tgt_lines = positions[link.target]
 
         per_line = 4  # pixels per line of text
 
@@ -488,9 +493,9 @@ def plot_timeline(
         # 1) Arrow without text
         fig.add_annotation(
                 x=x1,
-                y=y1_key,   # category name
+                y=y1,   # category name
                 ax=x0,
-                ay=y0_key,  # category name
+                ay=y0,  # category name
                 xref="x",
                 yref="y",
                 axref="x",
@@ -509,21 +514,18 @@ def plot_timeline(
 
         # 2) Label at midpoint of the link, in both x and y
         if show_link_labels and link_label:
-            # midpoint in time
             mid_x = x0 + (x1 - x0) / 2
-
-            # midpoint between lane indices; category axis accepts numeric positions
-            mid_y_idx = (y0_idx + y1_idx) / 2.0
+            mid_y = (y0 + y1) / 2.0
 
             fig.add_annotation(
                     x=mid_x,
-                    y=mid_y_idx,
+                    y=mid_y,
                     xref="x",
                     yref="y",
                     showarrow=False,
                     text=link_label,
                     align="center",
-                    yshift=-5,      # small tweak up/down if you like
+                    yshift=-5,
                     font=dict(size=10),
                     )
 
@@ -536,13 +538,14 @@ def plot_timeline(
             int(base_per_lane * max(1, n_lanes) * lane_spacing_factor),
             )
 
+
     fig.update_yaxes(
-            type="category",
+            type="linear",
             tickmode="array",
-            tickvals=lane_keys,
-            ticktext=lane_keys,
+            tickvals=[base_y[k] for k in lane_keys],
+            ticktext=[str(k) for k in lane_keys],
             title_text="Lane",
-            fixedrange=True,   # avoid vertical squash/stretch when zooming
+            fixedrange=True,
             )
 
     fig.update_layout(
@@ -996,6 +999,8 @@ def main():
             node_text_mode=node_text_mode,
             node_font_size=node_font_size,   
             node_text_width=node_text_width,
+            sensitivity_days=sensitivity_days,
+            max_stack=max_stack,
             )
 
 if __name__ == "__main__":
