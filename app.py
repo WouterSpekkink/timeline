@@ -333,12 +333,11 @@ def plot_timeline(
     df["lane_key"] = pd.Categorical(df["lane_key"], categories=lane_keys, ordered=True)
 
     # Map each lane to a numeric index for vertical geometry
-    lane_index = {lane : i for i, lane in enumerate(lane_keys)}
+    #lane_index = {lane : i for i, lane in enumerate(lane_keys)}
 
     # Overlap handling
     lane_keys = sorted(df["lane_key"].unique(), key=str)
     base_y = {lane: i for i, lane in enumerate(lane_keys)}
-    df["base_y"] = df["lane_key"].map(base_y)
 
     # Sort deterministically
     df = df.sort_values(["lane_key", "start_dt", "id"])
