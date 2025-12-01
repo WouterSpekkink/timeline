@@ -303,6 +303,33 @@ def plot_timeline(
     # Map each lane to a numeric index for vertical geometry
     lane_index = {lane : i for i, lane in enumerate(lane_keys)}
 
+    # Jitter events with same lane + date 
+    # We jitter on the *day* (floor date), not on the full timestamp.
+    df = df.sort_values(["lane_key", "start_dt", "id"])
+
+    jitter_step_days = 5  # tweak this if things still overlap
+
+    # group by lane and calendar day
+    groups = df.groupby(
+        ["lane_key", df["start_dt"].dt.floor("D")],
+        dropna=True,
+        sort=False,
+    )
+
+    for (_, _), grp in groups:
+        n = len(grp)
+        if n <= 1:
+            continue
+        # symmetric offsets: e.g. for n=3 → [-5, 0, +5] days
+        offsets = [
+            (i - (n - 1) / 2.0) * jitter_step_days
+            for i in range(n)
+        ]
+        for idx, off in zip(grp.index, offsets):
+            df.loc[idx, "start_dt"] = (
+                df.loc[idx, "start_dt"] + pd.to_timedelta(off, unit="D")
+            )
+
     # ---- Choose node text based on mode, then wrap ----
     if node_text_mode.startswith("Label"):
         # Always show the label
