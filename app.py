@@ -270,7 +270,7 @@ def plot_timeline(
         links: List[Link],
         src_extra_offset: int = 0,
         tgt_extra_offset: int = 0,
-        lane_spacing_factor: float = 1.0,
+        lane_spacing_factor: float = 3.0,
         show_link_labels: bool = True,
         node_text_mode: str = "Summary (if available)",
         node_font_size: int = 12,
@@ -917,8 +917,8 @@ def main():
             lane_spacing_factor = st.slider(
                     "Lane spacing factor",
                     min_value=0.5,
-                    max_value=10.0,
-                    value=1.0,
+                    max_value=15.0,
+                    value=3.0,
                     step=0.1,
                     help="Increase to add more vertical space between lanes; decrease to pack lanes closer.",
                     )   
@@ -935,7 +935,7 @@ def main():
             sensitivity_days = st.slider(
                     "Overlap sensitivity (days)",
                     min_value=0,
-                    max_value=365,
+                    max_value=3650,
                     value=60,
                     help="Events within this many days, for the same actor, are stacked vertically."
                     )
@@ -943,7 +943,7 @@ def main():
             max_stack = st.slider(
                     "Maximum vertical levels per actor",
                     min_value=1,
-                    max_value=6,
+                    max_value=10,
                     value=3,
                     help="Upper limit on how many virtual lanes an actor can get."
                     )
