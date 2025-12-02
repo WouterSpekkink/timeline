@@ -387,18 +387,18 @@ def plot_timeline(
             n_eff,
             )
 
-        # If we have more events than max_stack, reuse the topmost offset
+        # Cycle through at most max_stack virtual lanes
         if n <= max_stack:
             offsets = offsets_core
         else:
-            offsets = list(offsets_core)
-            # extra events all get the highest offset
-            offsets.extend([offsets_core[-1]] * (n - max_stack))
+            # repeat offsets_core in a round-robin way: 0,1,...,max_stack-1,0,1,...
+            offsets = [offsets_core[i % n_eff] for i in range(n)]
 
         for idx, off in zip(g.index, offsets):
             df.at[idx, "y_offset"] = off
 
     df["y_plot"] = df["base_y"] + df["y_offset"]
+
 
     # ---- Choose node text based on mode, then wrap ----
     if node_text_mode.startswith("Label"):
